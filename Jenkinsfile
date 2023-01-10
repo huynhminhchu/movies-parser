@@ -1,43 +1,50 @@
-def imageName = 'mlabouardy/movies-parser'
-def registry = 'https://registry.slowcoder.com'
+def imageName = 'movies-parser'
+def registry = 'chuhuynh.jfrog.io/default-docker-local'
 
-node('workers'){
-    stage('Checkout'){
-        checkout scm
-    }
+pipeline{
+   
+    agent any
+    stages{
+        stage('Checkout'){
+            steps{
+                checkout scm
+            }
+        }
 
-    def imageTest= docker.build("${imageName}-test", "-f Dockerfile.test .")
+        // stage('Unit Tests'){
+        //     steps{
+        //         script {
+        //             def imageTest= docker.build("${imageName}-test", "-f Dockerfile.test .")
+        //             def imageVersion = commitID()
+        //             sh "docker build  -t ${image_repo}:${imageName}-test -f ${dockerpath} ."
+        //             imageTest.inside{
+        //                 sh "python test_main.py"
+        //             }
+        //         }
+        //     }
+        // }
 
-    stage('Pre-integration Tests'){
-        parallel(
-            'Quality Tests': {
-                imageTest.inside{
-                    sh 'golint'
-                }
-            },
-            'Unit Tests': {
-                imageTest.inside{
-                    sh 'go test'
-                }
-            },
-            'Security Tests': {
-                imageTest.inside('-u root:root'){
-                    sh 'nancy /go/src/github/mlabouardy/movies-parser/Gopkg.lock'
+        stage('Build'){
+            steps{
+                script {
+                    def imageVersion = commitID()
+                    sh "docker build  -t ${registry}/${imageName}:${imageVersion} ."
                 }
             }
-        )
-    }
+        }
 
-    stage('Build'){
-        docker.build(imageName)
-    }
+        stage('Push'){
+            steps{
+                script {
+                    def imageVersion = commitID()
 
-    stage('Push'){
-        docker.withRegistry(registry, 'registry') {
-            docker.image(imageName).push(commitID())
-
-            if (env.BRANCH_NAME == 'develop') {
-                docker.image(imageName).push('develop')
+                        withCredentials([usernamePassword(credentialsId: 'jfrog-credentials-id', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                        LOGIN_RESULT = sh(script: "/bin/bash -c 'echo $PASSWORD | docker login -u $USERNAME chuhuynh.jfrog.io --password-stdin'", returnStdout: true)
+                        echo "${LOGIN_RESULT}"
+                        sh "docker push ${registry}/${imageName}:${imageVersion}"
+                        }
+                    
+                }
             }
         }
     }
@@ -47,5 +54,5 @@ def commitID() {
     sh 'git rev-parse HEAD > .git/commitID'
     def commitID = readFile('.git/commitID').trim()
     sh 'rm .git/commitID'
-    commitID
+    return commitID
 }
